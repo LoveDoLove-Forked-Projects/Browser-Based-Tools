@@ -1,0 +1,1858 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NuGet Package Signature & Certificate Extractor</title>
+
+    <!-- Google Fonts (Inter) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+    <!-- JSZip (for extraction) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+
+    <!-- Node-Forge (for crypto parsing) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/forge/1.3.1/forge.min.js"></script>
+
+    <style>
+        /**
+         * Base Variables - Dark Theme Default
+         * Aligned with Tool Maker Guidelines for dark-by-default, high contrast UI.
+         */
+        :root {
+            /* Colors */
+            --bg-body: #0f172a;
+            --bg-surface: #1e293b;
+            --bg-surface-hover: #334155;
+            --bg-inset: #0b1120;
+
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+
+            --border-color: #334155;
+            --border-light: #475569;
+
+            --primary-color: #f97316;
+            /* NuGet Orange */
+            --primary-hover: #ea580c;
+            --primary-light: rgba(249, 115, 22, 0.1);
+
+            --success-color: #22c55e;
+            --success-bg: rgba(34, 197, 94, 0.1);
+
+            --danger-color: #ef4444;
+            --danger-bg: rgba(239, 68, 68, 0.1);
+
+            --warning-color: #eab308;
+            --warning-bg: rgba(234, 179, 8, 0.1);
+
+            --info-color: #3b82f6;
+            --info-bg: rgba(59, 130, 246, 0.1);
+
+            /* Typography */
+            --font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+            /* Sizing & Radius */
+            --radius-sm: 0.375rem;
+            --radius-md: 0.5rem;
+            --radius-lg: 0.75rem;
+            --radius-xl: 1rem;
+            --radius-full: 9999px;
+
+            --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+            --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+
+            --transition-speed: 0.2s;
+        }
+
+        /* Light Theme Overrides */
+        :root.light-theme {
+            --bg-body: #f8fafc;
+            --bg-surface: #ffffff;
+            --bg-surface-hover: #f1f5f9;
+            --bg-inset: #f1f5f9;
+
+            --text-primary: #0f172a;
+            --text-secondary: #475569;
+            --text-muted: #94a3b8;
+
+            --border-color: #e2e8f0;
+            --border-light: #cbd5e1;
+        }
+
+        /* Reset & Base HTML */
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        html,
+        body {
+            height: 100%;
+            font-family: var(--font-family);
+            background-color: var(--bg-body);
+            color: var(--text-primary);
+            line-height: 1.5;
+            transition: background-color var(--transition-speed), color var(--transition-speed);
+        }
+
+        body {
+            display: flex;
+            flex-direction: column;
+        }
+
+        a {
+            color: var(--info-color);
+            text-decoration: none;
+        }
+
+        a:hover {
+            text-decoration: underline;
+        }
+
+        svg {
+            display: block;
+            vertical-align: middle;
+        }
+
+        /* Layout */
+        .container {
+            width: 100%;
+            max-width: 1600px;
+            margin: 0 auto;
+            padding: 0 1rem;
+        }
+
+        .app-header {
+            background-color: var(--bg-surface);
+            border-bottom: 1px solid var(--border-color);
+            padding: 1rem 0;
+        }
+
+        .header-content {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .header-brand {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .header-brand svg {
+            color: var(--primary-color);
+            width: 2.5rem;
+            height: 2.5rem;
+        }
+
+        .header-title {
+            font-size: 1.25rem;
+            font-weight: 700;
+        }
+
+        .header-subtitle {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+        }
+
+        .app-main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 2rem;
+            padding: 2rem 1rem;
+            overflow: hidden;
+        }
+
+        @media (min-width: 768px) {
+            .app-main {
+                flex-direction: row;
+            }
+        }
+
+        .sidebar {
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+            flex-shrink: 0;
+        }
+
+        @media (min-width: 768px) {
+            .sidebar {
+                width: 24rem;
+                /* 384px */
+            }
+        }
+
+        .content-area {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-height: 400px;
+            overflow-y: auto;
+            padding-right: 0.5rem;
+            /* Scrollbar padding */
+        }
+
+        /* Scrollbar Styling */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--border-color);
+            border-radius: var(--radius-full);
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--text-muted);
+        }
+
+        /* Components */
+        .card {
+            background-color: var(--bg-surface);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-xl);
+            padding: 1.5rem;
+            box-shadow: var(--shadow-sm);
+        }
+
+        .card-header {
+            font-size: 1.125rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+        }
+
+        .card-subheader {
+            font-size: 0.875rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 0.75rem;
+        }
+
+        /* Forms & Inputs */
+        .form-group {
+            margin-bottom: 1rem;
+            position: relative;
+        }
+
+        .form-label {
+            display: block;
+            font-size: 0.875rem;
+            font-weight: 500;
+            margin-bottom: 0.25rem;
+            color: var(--text-secondary);
+        }
+
+        .form-input,
+        .form-select {
+            width: 100%;
+            padding: 0.5rem 1rem;
+            background-color: var(--bg-inset);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md);
+            font-family: inherit;
+            font-size: 1rem;
+            transition: border-color var(--transition-speed), box-shadow var(--transition-speed);
+        }
+
+        .form-input:focus,
+        .form-select:focus {
+            outline: none;
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 2px var(--primary-light);
+        }
+
+        .form-input:disabled,
+        .form-select:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* Buttons */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            padding: 0.625rem 1rem;
+            border-radius: var(--radius-md);
+            font-weight: 500;
+            font-size: 1rem;
+            cursor: pointer;
+            border: none;
+            transition: background-color var(--transition-speed), transform 0.1s;
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .btn:not(:disabled):active {
+            transform: scale(0.98);
+        }
+
+        .btn-primary {
+            background-color: var(--primary-color);
+            color: white;
+            width: 100%;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            background-color: var(--primary-hover);
+        }
+
+        .btn-icon {
+            padding: 0.5rem;
+            background: transparent;
+            color: var(--text-secondary);
+            border-radius: var(--radius-md);
+        }
+
+        .btn-icon:hover {
+            background-color: var(--bg-surface-hover);
+            color: var(--text-primary);
+        }
+
+        /* Checkbox */
+        .checkbox-group {
+            display: flex;
+            align-items: flex-start;
+            gap: 0.75rem;
+        }
+
+        .checkbox-input {
+            margin-top: 0.25rem;
+            width: 1rem;
+            height: 1rem;
+            accent-color: var(--primary-color);
+        }
+
+        .checkbox-label {
+            font-size: 0.875rem;
+            font-weight: 500;
+        }
+
+        .checkbox-desc {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+
+        /* Autocomplete Dropdown */
+        .dropdown {
+            position: absolute;
+            z-index: 20;
+            left: 0;
+            right: 0;
+            top: 100%;
+            margin-top: 0.25rem;
+            max-height: 15rem;
+            overflow-y: auto;
+            background-color: var(--bg-surface);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md);
+            box-shadow: var(--shadow-md);
+            display: none;
+        }
+
+        .dropdown.active {
+            display: block;
+        }
+
+        .dropdown-list {
+            list-style: none;
+        }
+
+        .dropdown-item {
+            padding: 0.5rem 1rem;
+            cursor: pointer;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .dropdown-item:last-child {
+            border-bottom: none;
+        }
+
+        .dropdown-item:hover {
+            background-color: var(--bg-surface-hover);
+        }
+
+        .dropdown-item-title {
+            font-weight: 600;
+            font-size: 0.875rem;
+        }
+
+        .dropdown-item-desc {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        /* Sample Tags */
+        .tags-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+        }
+
+        .tag-btn {
+            padding: 0.375rem 0.75rem;
+            font-size: 0.75rem;
+            font-weight: 500;
+            background-color: var(--bg-surface-hover);
+            color: var(--text-primary);
+            border: 1px solid transparent;
+            border-radius: var(--radius-full);
+            cursor: pointer;
+            transition: all var(--transition-speed);
+        }
+
+        .tag-btn:hover {
+            background-color: var(--primary-light);
+            color: var(--primary-color);
+            border-color: var(--primary-color);
+        }
+
+        /* Panels */
+        .panel {
+            flex: 1;
+            display: none;
+            flex-direction: column;
+            border-radius: var(--radius-xl);
+        }
+
+        .panel.active {
+            display: flex;
+        }
+
+        .panel-center {
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 2rem;
+            border: 2px dashed var(--border-color);
+            background-color: rgba(0, 0, 0, 0.02);
+        }
+
+        :root.dark-theme .panel-center {
+            background-color: rgba(255, 255, 255, 0.02);
+        }
+
+        .panel-icon {
+            width: 4rem;
+            height: 4rem;
+            color: var(--border-light);
+            margin-bottom: 1rem;
+        }
+
+        /* Utilities */
+        .text-mono {
+            font-family: var(--font-mono);
+        }
+
+        .text-sm {
+            font-size: 0.875rem;
+        }
+
+        .text-xs {
+            font-size: 0.75rem;
+        }
+
+        .font-bold {
+            font-weight: 700;
+        }
+
+        .truncate {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .flex {
+            display: flex;
+        }
+
+        .items-center {
+            align-items: center;
+        }
+
+        .justify-between {
+            justify-content: space-between;
+        }
+
+        .gap-2 {
+            gap: 0.5rem;
+        }
+
+        .gap-4 {
+            gap: 1rem;
+        }
+
+        .w-full {
+            width: 100%;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        /* Badges */
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.25rem 0.75rem;
+            border-radius: var(--radius-full);
+            font-size: 0.75rem;
+            font-weight: 600;
+            border: 1px solid;
+        }
+
+        .badge-success {
+            background-color: var(--success-bg);
+            color: var(--success-color);
+            border-color: var(--success-color);
+        }
+
+        .badge-danger {
+            background-color: var(--danger-bg);
+            color: var(--danger-color);
+            border-color: var(--danger-color);
+        }
+
+        .badge-warning {
+            background-color: var(--warning-bg);
+            color: var(--warning-color);
+            border-color: var(--warning-color);
+        }
+
+        .badge-primary {
+            background-color: var(--primary-light);
+            color: var(--primary-color);
+            border-color: var(--primary-color);
+        }
+
+        .badge-secondary {
+            background-color: var(--bg-surface-hover);
+            color: var(--text-secondary);
+            border-color: var(--border-color);
+        }
+
+        /* Animations */
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        .animate-spin {
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: .5;
+            }
+        }
+
+        .animate-pulse {
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+
+        /* Loading Tracker */
+        .step-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 1rem;
+            color: var(--text-muted);
+            font-size: 0.875rem;
+            font-weight: 500;
+        }
+
+        .step-icon {
+            width: 1.5rem;
+            height: 1.5rem;
+            border-radius: var(--radius-full);
+            border: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-right: 0.75rem;
+            font-size: 0.75rem;
+            background: transparent;
+        }
+
+        .step-item.running {
+            color: var(--primary-color);
+        }
+
+        .step-item.running .step-icon {
+            border-color: var(--primary-color);
+            background-color: var(--primary-light);
+        }
+
+        .step-item.completed {
+            color: var(--text-primary);
+        }
+
+        .step-item.completed .step-icon {
+            background-color: var(--success-color);
+            border-color: var(--success-color);
+            color: white;
+        }
+
+        /* Certificate Cards */
+        .cert-card {
+            background-color: var(--bg-surface);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-lg);
+            overflow: hidden;
+            margin-bottom: 1.5rem;
+        }
+
+        .cert-header {
+            background-color: var(--bg-inset);
+            border-bottom: 1px solid var(--border-color);
+            padding: 1rem 1.5rem;
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1rem;
+        }
+
+        .cert-title-group {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .cert-index {
+            width: 1.5rem;
+            height: 1.5rem;
+            background-color: var(--bg-surface-hover);
+            border-radius: var(--radius-full);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.75rem;
+            font-weight: bold;
+        }
+
+        .cert-body {
+            padding: 1.5rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+
+        .cert-grid-2 {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 1rem;
+        }
+
+        @media (min-width: 768px) {
+            .cert-grid-2 {
+                grid-template-columns: 1fr 1fr;
+            }
+        }
+
+        .cert-grid-3 {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 1rem;
+            border-top: 1px solid var(--border-color);
+            padding-top: 1rem;
+        }
+
+        @media (min-width: 768px) {
+            .cert-grid-3 {
+                grid-template-columns: 1fr 1fr 1fr;
+            }
+        }
+
+        .cert-field-label {
+            font-size: 0.75rem;
+            font-weight: 700;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 0.25rem;
+            display: block;
+        }
+
+        .cert-field-value {
+            padding: 0.75rem;
+            background-color: var(--bg-inset);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md);
+            font-size: 0.75rem;
+            word-break: break-all;
+        }
+
+        .fingerprint-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.5rem;
+            background-color: var(--bg-inset);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md);
+            margin-bottom: 0.5rem;
+        }
+
+        .pem-textarea {
+            width: 100%;
+            height: 150px;
+            padding: 1rem;
+            background-color: #0b1120;
+            /* Always dark for code */
+            color: #e2e8f0;
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md);
+            font-family: var(--font-mono);
+            font-size: 0.65rem;
+            resize: none;
+            white-space: pre;
+            overflow-x: auto;
+        }
+
+        .error-box {
+            background-color: var(--danger-bg);
+            border: 1px solid var(--danger-color);
+            color: var(--danger-color);
+        }
+
+        /* App Footer */
+        .app-footer {
+            border-top: 1px solid var(--border-color);
+            padding: 1rem 0;
+            text-align: center;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            background-color: var(--bg-surface);
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- Header -->
+    <header class="app-header">
+        <div class="container header-content">
+            <div class="header-brand">
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                        d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path>
+                </svg>
+                <div>
+                    <div class="header-title">NuGet Inspector</div>
+                    <div class="header-subtitle">Signature Verification & Metadata Extractor</div>
+                </div>
+            </div>
+
+            <div>
+                <!-- Theme Toggle Button -->
+                <button id="theme-toggle" class="btn-icon" title="Toggle Light/Dark Mode">
+                    <svg id="theme-toggle-dark-icon" class="hidden" style="width:1.25rem;height:1.25rem"
+                        fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z"></path>
+                    </svg>
+                    <svg id="theme-toggle-light-icon" class="hidden" style="width:1.25rem;height:1.25rem"
+                        fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
+                        <path fill-rule="evenodd"
+                            d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.46 5.05l-.707-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 000 2h1z"
+                            clip-rule="evenodd"></path>
+                    </svg>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <main class="app-main container">
+
+        <!-- Sidebar Controls -->
+        <aside class="sidebar">
+
+            <!-- Package Selection Card -->
+            <div class="card">
+                <h2 class="card-header">Select Package</h2>
+
+                <div class="form-group">
+                    <label for="package-id" class="form-label">Package ID</label>
+                    <div style="position:relative;">
+                        <input type="text" id="package-id" placeholder="e.g. Newtonsoft.Json" autocomplete="off"
+                            class="form-input">
+                        <!-- Input loading spinner -->
+                        <div id="search-spinner" class="hidden" style="position:absolute; right:0.75rem; top:0.5rem;">
+                            <svg class="animate-spin" style="width:1.25rem;height:1.25rem;color:var(--text-muted)"
+                                xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"
+                                    style="opacity:0.25"></circle>
+                                <path class="opacity-75" fill="currentColor"
+                                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                                    style="opacity:0.75"></path>
+                            </svg>
+                        </div>
+                    </div>
+
+                    <!-- Suggestions Dropdown -->
+                    <div id="suggestions-dropdown" class="dropdown">
+                        <ul id="suggestions-list" class="dropdown-list">
+                            <!-- Populated dynamically -->
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="package-version" class="form-label">Version</label>
+                    <select id="package-version" disabled class="form-select">
+                        <option value="">Enter Package ID first...</option>
+                    </select>
+                </div>
+
+                <button id="btn-analyze" disabled class="btn btn-primary">
+                    <span>Analyze Package</span>
+                </button>
+            </div>
+
+            <!-- Advanced Settings Card -->
+            <div class="card">
+                <h3 class="card-subheader">Connection Settings</h3>
+
+                <div class="form-group checkbox-group">
+                    <input id="use-proxy" type="checkbox" class="checkbox-input">
+                    <div>
+                        <label for="use-proxy" class="checkbox-label">Use CORS Proxy</label>
+                        <p class="checkbox-desc">Helps bypass browser Cross-Origin Resource Sharing restrictions. Likely not needed in this case.</p>
+                    </div>
+                </div>
+
+                <div class="form-group checkbox-group">
+                    <input id="fingerprint-copy-with-colons" type="checkbox" class="checkbox-input">
+                    <div>
+                        <label for="fingerprint-copy-with-colons" class="checkbox-label">Include colons when copying fingerprints</label>
+                        <p class="checkbox-desc">Applies to SHA-1 thumbprints and SHA-256 certificate fingerprints.</p>
+                    </div>
+                </div>
+
+                <div id="proxy-settings" class="form-group" style="display:none; margin-top:0.5rem;">
+                    <label for="proxy-url" class="form-label" style="font-size:0.75rem;">CORS Proxy URL Template</label>
+                    <input type="text" id="proxy-url" class="form-input"
+                        style="font-size:0.75rem; padding:0.375rem 0.5rem;">
+                </div>
+            </div>
+
+            <!-- Predefined Examples Card -->
+            <div class="card">
+                <h3 class="card-subheader">Sample Packages</h3>
+                <div class="tags-container">
+                    <button class="tag-btn btn-example" data-pkg="Newtonsoft.Json">Newtonsoft.Json</button>
+                    <button class="tag-btn btn-example"
+                        data-pkg="Microsoft.Extensions.Logging">Extensions.Logging</button>
+                    <button class="tag-btn btn-example" data-pkg="Serilog">Serilog</button>
+                    <button class="tag-btn btn-example" data-pkg="AutoMapper">AutoMapper</button>
+                </div>
+            </div>
+
+        </aside>
+
+        <!-- Right Content Section -->
+        <section class="content-area">
+
+            <!-- Welcome Panel (Default) -->
+            <div id="panel-welcome" class="panel panel-center active">
+                <svg class="panel-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                    xmlns="http://www.w3.org/2000/svg">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                        d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z">
+                    </path>
+                </svg>
+                <h3 style="font-size:1.125rem; font-weight:600; margin-bottom:0.5rem;">Ready to Inspect</h3>
+                <p style="color:var(--text-secondary); font-size:0.875rem; max-width:400px;">Enter a package name on the
+                    left or select a sample package to query the NuGet registry, extract digital signatures, and parse
+                    certificates locally in your browser.</p>
+            </div>
+
+            <!-- Loading Panel -->
+            <div id="panel-loading" class="panel card" style="margin:auto; max-width:600px; width:100%;">
+                <div style="display:flex; align-items:center; gap:1rem; margin-bottom:1.5rem;">
+                    <svg class="animate-spin" style="width:2rem;height:2rem;color:var(--primary-color)" fill="none"
+                        viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"
+                            style="opacity:0.25"></circle>
+                        <path class="opacity-75" fill="currentColor"
+                            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                            style="opacity:0.75"></path>
+                    </svg>
+                    <div>
+                        <h3 style="font-size:1.125rem; font-weight:700;">Analyzing Package...</h3>
+                        <p id="loading-subtext" style="font-size:0.875rem; color:var(--text-secondary);">Initiating
+                            connections</p>
+                    </div>
+                </div>
+
+                <div style="display:flex; flex-direction:column; gap:0.5rem;">
+                    <div id="step-versions" class="step-item">
+                        <div class="step-icon">1</div>
+                        <span>Fetch package versions from NuGet catalog</span>
+                    </div>
+                    <div id="step-download" class="step-item">
+                        <div class="step-icon">2</div>
+                        <span>Download package file (.nupkg)</span>
+                    </div>
+                    <div id="step-unzip" class="step-item">
+                        <div class="step-icon">3</div>
+                        <span>Extract signature (.signature.p7s) & metadata (.nuspec)</span>
+                    </div>
+                    <div id="step-parse" class="step-item">
+                        <div class="step-icon">4</div>
+                        <span>Parse cryptographic certificates & fingerprints</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Error Panel -->
+            <div id="panel-error" class="panel panel-center error-box"
+                style="margin:auto; max-width:600px; width:100%; border-style:solid;">
+                <svg style="width:4rem; height:4rem; margin-bottom:1rem;" fill="none" stroke="currentColor"
+                    viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                        d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                </svg>
+                <h3 style="font-size:1.125rem; font-weight:700; margin-bottom:0.5rem;">Analysis Failed</h3>
+                <p id="error-message" style="margin-bottom:1.5rem; font-size:0.875rem; max-width:400px;">An unknown
+                    error occurred while retrieving package data.</p>
+                <div
+                    style="text-align:left; background-color:var(--bg-surface); padding:1rem; border-radius:var(--radius-md); border:1px solid var(--border-color); font-size:0.75rem; color:var(--text-primary); width:100%;">
+                    <strong style="display:block; margin-bottom:0.5rem;">Troubleshooting checklist:</strong>
+                    <p style="margin-bottom:0.25rem;">• Verify that the Package ID is spelt exactly correct.</p>
+                    <p style="margin-bottom:0.25rem;">• Try checking/unchecking the <b>Use CORS Proxy</b> toggle.</p>
+                    <p>• The package might not exist on the primary NuGet feed.</p>
+                </div>
+            </div>
+
+            <!-- Results Panel -->
+            <div id="panel-results" class="panel" style="gap:1.5rem;">
+
+                <!-- Package Summary Section -->
+                <div class="card">
+                    <div
+                        style="display:flex; flex-wrap:wrap; align-items:flex-start; justify-content:space-between; gap:1rem; margin-bottom:1.5rem;">
+                        <div style="display:flex; align-items:center; gap:1rem;">
+                            <!-- SVG Package Icon -->
+                            <div
+                                style="padding:0.75rem; background-color:var(--bg-inset); border:1px solid var(--border-color); border-radius:var(--radius-lg);">
+                                <svg style="width:2.5rem; height:2.5rem; color:var(--primary-color);" fill="none"
+                                    stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                                        d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path>
+                                </svg>
+                            </div>
+                            <div>
+                                <h2 id="res-pkg-title" style="font-size:1.25rem; font-weight:700;">Newtonsoft.Json</h2>
+                                <p style="font-size:0.875rem; color:var(--text-secondary);">
+                                    Version <span id="res-pkg-ver"
+                                        style="font-weight:600; color:var(--text-primary);">13.0.3</span> •
+                                    Size: <span id="res-pkg-size"
+                                        style="font-weight:600; color:var(--text-primary);">N/A</span>
+                                </p>
+                            </div>
+                        </div>
+
+                        <!-- Signed Badge status -->
+                        <div id="res-sign-status">
+                            <!-- Populated dynamically -->
+                        </div>
+                    </div>
+
+                    <!-- XML Metadata fields extracted from .nuspec -->
+                    <div
+                        style="display:grid; grid-template-columns:repeat(auto-fit, minmax(250px, 1fr)); gap:1.5rem; border-top:1px solid var(--border-color); padding-top:1rem; font-size:0.875rem;">
+                        <div style="display:flex; flex-direction:column; gap:0.75rem;">
+                            <p style="color:var(--text-secondary);">Description: <span id="res-pkg-desc"
+                                    style="display:block; margin-top:0.25rem; color:var(--text-primary); font-weight:500;">N/A</span>
+                            </p>
+                            <p style="color:var(--text-secondary);">Authors: <span id="res-pkg-authors"
+                                    style="display:block; color:var(--text-primary); font-weight:500;">N/A</span></p>
+                        </div>
+                        <div style="display:flex; flex-direction:column; gap:0.75rem;">
+                            <div
+                                style="display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid var(--border-color); padding-bottom:0.5rem; color:var(--text-secondary);">
+                                <span>Project URL</span>
+                                <span id="res-pkg-url" style="font-weight:500;">N/A</span>
+                            </div>
+                            <div
+                                style="display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid var(--border-color); padding-bottom:0.5rem; color:var(--text-secondary);">
+                                <span>License</span>
+                                <span id="res-pkg-license"
+                                    style="font-weight:500; color:var(--text-primary);">N/A</span>
+                            </div>
+                            <div
+                                style="display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid var(--border-color); padding-bottom:0.5rem; color:var(--text-secondary);">
+                                <span>SHA-256 Package Hash</span>
+                                <div
+                                    style="display:flex; align-items:center; gap:0.25rem; font-family:var(--font-mono); font-size:0.75rem; color:var(--text-primary);">
+                                    <span id="res-pkg-hash"
+                                        style="max-width:140px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;"
+                                        title="Package file checksum">N/A</span>
+                                    <button
+                                        onclick="copyToClipboard(document.getElementById('res-pkg-hash').textContent, this)"
+                                        class="btn-icon" style="padding:0.25rem;" title="Copy Package Hash">
+                                        <svg style="width:1rem; height:1rem;" fill="none" stroke="currentColor"
+                                            viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                                d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01">
+                                            </path>
+                                        </svg>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Signature & Certificate Chain Card -->
+                <div>
+                    <h3
+                        style="font-size:1.125rem; font-weight:700; margin-bottom:1rem; display:flex; align-items:center;">
+                        <svg style="width:1.25rem; height:1.25rem; color:var(--primary-color); margin-right:0.5rem;"
+                            fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z">
+                            </path>
+                        </svg>
+                        Certificate Chain Information
+                    </h3>
+
+                    <div id="certificates-list">
+                        <!-- Certificate cards dynamically added here -->
+                    </div>
+                </div>
+
+            </div>
+        </section>
+    </main>
+
+    <!-- Footer -->
+    <!-- <footer class="app-footer">
+        <div class="container" style="display:flex; flex-wrap:wrap; justify-content:space-between; gap:0.5rem;">
+            <p>Made with node-forge & jszip. Completely local in-browser parsing.</p>
+            <p>&copy; 2026 NuGet Inspector Tool. Open-source, self-contained client utility.</p>
+        </div>
+    </footer> -->
+
+    <script>
+        /**
+         * Application settings and defaults.
+         * Centralized location to configure proxy URLs and default tool states.
+         * @typedef {Object} AppSettings
+         * @property {string} defaultProxyUrl - The default CORS proxy URL.
+         * @property {boolean} useProxyByDefault - Whether to use the proxy by default.
+         * @property {string} defaultTheme - Default UI theme ('dark' or 'light').
+         */
+        const DEFAULT_SETTINGS = {
+            defaultProxyUrl: "",
+            useProxyByDefault: false,
+            defaultTheme: "dark",
+            fingerprintCopyWithColons: false
+        };
+
+        // DOM Elements - Settings & Controls
+        const elThemeToggle = document.getElementById('theme-toggle');
+        const elThemeToggleDarkIcon = document.getElementById('theme-toggle-dark-icon');
+        const elThemeToggleLightIcon = document.getElementById('theme-toggle-light-icon');
+
+        const elPackageId = document.getElementById('package-id');
+        const elPackageVersion = document.getElementById('package-version');
+        const elBtnAnalyze = document.getElementById('btn-analyze');
+        const elSuggestionsDropdown = document.getElementById('suggestions-dropdown');
+        const elSuggestionsList = document.getElementById('suggestions-list');
+        const elSearchSpinner = document.getElementById('search-spinner');
+
+        const elUseProxy = document.getElementById('use-proxy');
+        const elProxySettings = document.getElementById('proxy-settings');
+        const elProxyUrl = document.getElementById('proxy-url');
+        const elFingerprintCopyWithColons = document.getElementById('fingerprint-copy-with-colons');
+
+        // DOM Elements - Panels
+        const elPanelWelcome = document.getElementById('panel-welcome');
+        const elPanelLoading = document.getElementById('panel-loading');
+        const elPanelError = document.getElementById('panel-error');
+        const elPanelResults = document.getElementById('panel-results');
+
+        const elLoadingSubtext = document.getElementById('loading-subtext');
+        const elErrorMessage = document.getElementById('error-message');
+
+        // DOM Elements - Loading Steps
+        const elStepVersions = document.getElementById('step-versions');
+        const elStepDownload = document.getElementById('step-download');
+        const elStepUnzip = document.getElementById('step-unzip');
+        const elStepParse = document.getElementById('step-parse');
+
+        /**
+         * Initialize application state
+         */
+        function init() {
+            // Apply Settings
+            elProxyUrl.value = DEFAULT_SETTINGS.defaultProxyUrl;
+            elUseProxy.checked = DEFAULT_SETTINGS.useProxyByDefault;
+            if (elUseProxy.checked) {
+                elProxySettings.style.display = 'block';
+            }
+
+            const savedFingerprintCopyWithColons = localStorage.getItem('fingerprint-copy-with-colons');
+            elFingerprintCopyWithColons.checked = savedFingerprintCopyWithColons === null
+                ? DEFAULT_SETTINGS.fingerprintCopyWithColons
+                : savedFingerprintCopyWithColons === 'true';
+
+            // Theme Setup
+            const savedTheme = localStorage.getItem('color-theme');
+            const systemPrefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+
+            // Per requirements, prefer dark theme natively.
+            if (savedTheme === 'light' || (!savedTheme && !systemPrefersDark && DEFAULT_SETTINGS.defaultTheme === 'light')) {
+                document.documentElement.classList.add('light-theme');
+                elThemeToggleDarkIcon.classList.remove('hidden');
+            } else {
+                // Default to dark
+                document.documentElement.classList.remove('light-theme');
+                elThemeToggleLightIcon.classList.remove('hidden');
+            }
+        }
+
+        /**
+         * Toggle application theme between dark and light
+         */
+        elThemeToggle.addEventListener('click', function () {
+            elThemeToggleDarkIcon.classList.toggle('hidden');
+            elThemeToggleLightIcon.classList.toggle('hidden');
+
+            if (document.documentElement.classList.contains('light-theme')) {
+                document.documentElement.classList.remove('light-theme');
+                localStorage.setItem('color-theme', 'dark');
+            } else {
+                document.documentElement.classList.add('light-theme');
+                localStorage.setItem('color-theme', 'light');
+            }
+        });
+
+        // Toggle custom proxy field view
+        elUseProxy.addEventListener('change', () => {
+            elProxySettings.style.display = elUseProxy.checked ? 'block' : 'none';
+        });
+
+        elFingerprintCopyWithColons.addEventListener('change', () => {
+            localStorage.setItem('fingerprint-copy-with-colons', String(elFingerprintCopyWithColons.checked));
+        });
+
+        // Setup Example Buttons
+        document.querySelectorAll('.btn-example').forEach(btn => {
+            btn.addEventListener('click', () => {
+                elPackageId.value = btn.getAttribute('data-pkg');
+                onPackageIdChanged();
+            });
+        });
+
+        // Search Autocomplete with debounce
+        let searchTimeout = null;
+        elPackageId.addEventListener('input', () => {
+            clearTimeout(searchTimeout);
+            const val = elPackageId.value.trim();
+            if (!val) {
+                elSuggestionsDropdown.classList.remove('active');
+                elBtnAnalyze.disabled = true;
+                return;
+            }
+
+            elSearchSpinner.classList.remove('hidden');
+            searchTimeout = setTimeout(async () => {
+                try {
+                    const searchUrl = `https://api.nuget.org/v3/search?q=${encodeURIComponent(val)}&take=6`;
+                    let fetchUrl = searchUrl;
+                    if (elUseProxy.checked) {
+                        fetchUrl = elProxyUrl.value + encodeURIComponent(searchUrl);
+                    }
+
+                    const res = await fetch(fetchUrl);
+                    if (res.ok) {
+                        const json = await res.json();
+                        // Handle proxy unwrapping if proxy sends body wrapped
+                        let data = json;
+                        if (json.contents && typeof json.contents === 'string') {
+                            data = JSON.parse(json.contents);
+                        } else if (json.contents) {
+                            data = json.contents;
+                        }
+
+                        populateSuggestions(data.data || []);
+                    }
+                } catch (err) {
+                    console.warn("Search suggestions query failed:", err);
+                } finally {
+                    elSearchSpinner.classList.add('hidden');
+                }
+            }, 300);
+        });
+
+        // Hide autocomplete when clicking outside
+        document.addEventListener('click', (e) => {
+            if (!elPackageId.contains(e.target) && !elSuggestionsDropdown.contains(e.target)) {
+                elSuggestionsDropdown.classList.remove('active');
+            }
+        });
+
+        /**
+         * Populates the autocomplete dropdown with search results from NuGet.
+         * @param {Array} items - Array of package objects from NuGet Search API.
+         */
+        function populateSuggestions(items) {
+            elSuggestionsList.innerHTML = '';
+            if (items.length === 0) {
+                elSuggestionsDropdown.classList.remove('active');
+                return;
+            }
+
+            items.forEach(item => {
+                const li = document.createElement('li');
+                li.className = 'dropdown-item';
+
+                const titleSpan = document.createElement('span');
+                titleSpan.className = 'dropdown-item-title';
+                titleSpan.textContent = item.id;
+
+                const descSpan = document.createElement('span');
+                descSpan.className = 'dropdown-item-desc';
+                descSpan.textContent = item.description || 'No description available';
+
+                li.appendChild(titleSpan);
+                li.appendChild(descSpan);
+
+                li.addEventListener('click', () => {
+                    elPackageId.value = item.id;
+                    elSuggestionsDropdown.classList.remove('active');
+                    onPackageIdChanged();
+                });
+
+                elSuggestionsList.appendChild(li);
+            });
+            elSuggestionsDropdown.classList.add('active');
+        }
+
+        /**
+         * Fired when the Package ID is finalized to fetch available versions.
+         */
+        async function onPackageIdChanged() {
+            const pkgId = elPackageId.value.trim();
+            if (!pkgId) return;
+
+            elBtnAnalyze.disabled = true;
+            elPackageVersion.disabled = true;
+            elPackageVersion.innerHTML = '<option>Loading versions...</option>';
+
+            try {
+                const queryUrl = `https://api.nuget.org/v3-flatcontainer/${pkgId.toLowerCase()}/index.json`;
+                let fetchUrl = queryUrl;
+                if (elUseProxy.checked) {
+                    fetchUrl = elProxyUrl.value + encodeURIComponent(queryUrl);
+                }
+
+                const res = await fetch(fetchUrl);
+                if (!res.ok) throw new Error("Could not find package or retrieve versions.");
+
+                const json = await res.json();
+                let data = json;
+                if (json.contents && typeof json.contents === 'string') {
+                    data = JSON.parse(json.contents);
+                } else if (json.contents) {
+                    data = json.contents;
+                }
+
+                if (!data.versions || data.versions.length === 0) {
+                    throw new Error("No versions found for this package ID.");
+                }
+
+                // Populate versions dropdown in reverse chronological/version order (newest first)
+                elPackageVersion.innerHTML = '';
+                const versions = [...data.versions].reverse();
+                versions.forEach((ver, idx) => {
+                    const opt = document.createElement('option');
+                    opt.value = ver;
+                    opt.textContent = ver + (idx === 0 ? ' (Latest)' : '');
+                    elPackageVersion.appendChild(opt);
+                });
+
+                elPackageVersion.disabled = false;
+                elBtnAnalyze.disabled = false;
+            } catch (err) {
+                elPackageVersion.innerHTML = `<option value="">Error: ${err.message}</option>`;
+                console.error(err);
+            }
+        }
+
+        // Handle direct Enter in ID field
+        elPackageId.addEventListener('change', onPackageIdChanged);
+
+        // Trigger Analysis
+        elBtnAnalyze.addEventListener('click', runAnalysis);
+
+        /**
+         * Main business logic to download, unpack, and verify the NuGet package.
+         */
+        async function runAnalysis() {
+            const pkgId = elPackageId.value.trim();
+            const version = elPackageVersion.value;
+
+            if (!pkgId || !version) return;
+
+            // Show Loading UI
+            showPanel(elPanelLoading);
+            updateStep(elStepVersions, 'running');
+            updateStep(elStepDownload, 'pending');
+            updateStep(elStepUnzip, 'pending');
+            updateStep(elStepParse, 'pending');
+            elLoadingSubtext.textContent = `Resolving version metadata for ${pkgId}...`;
+
+            try {
+                // Step 1: Confirm versions
+                updateStep(elStepVersions, 'completed');
+                updateStep(elStepDownload, 'running');
+                elLoadingSubtext.textContent = `Downloading package file: ${pkgId} v${version}...`;
+
+                // Step 2: Download NUPKG
+                const downloadUrl = `https://api.nuget.org/v3-flatcontainer/${pkgId.toLowerCase()}/${version.toLowerCase()}/${pkgId.toLowerCase()}.${version.toLowerCase()}.nupkg`;
+                let fetchUrl = downloadUrl;
+                if (elUseProxy.checked) {
+                    fetchUrl = elProxyUrl.value + encodeURIComponent(downloadUrl);
+                }
+
+                const response = await fetch(fetchUrl);
+                if (!response.ok) throw new Error(`Download failed. Server returned HTTP status ${response.status}`);
+
+                const arrayBuffer = await response.arrayBuffer();
+                const fileSizeKB = (arrayBuffer.byteLength / 1024).toFixed(1);
+
+                updateStep(elStepDownload, 'completed');
+                updateStep(elStepUnzip, 'running');
+                elLoadingSubtext.textContent = "Decompressing NuGet archive & looking for signatures...";
+
+                // Compute Package file checksum hash (SHA-256)
+                let packageHashStr = 'Computing...';
+                try {
+                    const hashBuffer = await crypto.subtle.digest('SHA-256', arrayBuffer);
+                    const hashArray = Array.from(new Uint8Array(hashBuffer));
+                    packageHashStr = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+                } catch (e) {
+                    packageHashStr = 'N/A';
+                }
+
+                // Step 3: Decompress package & find metadata files
+                const zip = await JSZip.loadAsync(arrayBuffer);
+
+                // Find .nuspec
+                const nuspecFiles = zip.file(/\.nuspec$/i);
+                let nuspecMeta = { description: 'N/A', authors: 'N/A', projectUrl: 'N/A', license: 'N/A' };
+                if (nuspecFiles.length > 0) {
+                    try {
+                        const nuspecXml = await nuspecFiles[0].async("text");
+                        nuspecMeta = parseNuspec(nuspecXml);
+                    } catch (err) {
+                        console.warn("Could not parse .nuspec file:", err);
+                    }
+                }
+
+                // Find signature file (.signature.p7s)
+                const sigFile = zip.file(".signature.p7s");
+
+                if (!sigFile) {
+                    // Package is NOT signed
+                    updateStep(elStepUnzip, 'completed');
+                    updateStep(elStepParse, 'completed');
+                    displayUnsignedResults(pkgId, version, fileSizeKB, nuspecMeta, packageHashStr);
+                    return;
+                }
+
+                const signatureBytes = await sigFile.async("uint8array");
+                updateStep(elStepUnzip, 'completed');
+                updateStep(elStepParse, 'running');
+                elLoadingSubtext.textContent = "Parsing digital signatures & verifying certificate chain...";
+
+                // Convert bytes to binary string for node-forge PKCS7 parsing
+                let binaryStr = "";
+                const len = signatureBytes.byteLength;
+                for (let i = 0; i < len; i++) {
+                    binaryStr += String.fromCharCode(signatureBytes[i]);
+                }
+
+                // Step 4: Parse with node-forge
+                const p7Asn1 = forge.asn1.fromDer(binaryStr);
+                const p7 = forge.pkcs7.messageFromAsn1(p7Asn1);
+
+                const certChain = p7.certificates || [];
+                const certDetails = [];
+
+                // Try to find the primary signing certificate by comparing serial numbers with signer info
+                let signerSerial = null;
+                if (p7.signerInfos && p7.signerInfos.length > 0) {
+                    signerSerial = p7.signerInfos[0].serialNumber;
+                }
+
+                certChain.forEach(cert => {
+                    const subject = formatDN(cert.subject);
+                    const issuer = formatDN(cert.issuer);
+                    const isSigner = signerSerial && (normalizeHex(cert.serialNumber) === normalizeHex(signerSerial));
+
+                    // Re-encode certificate to DER to compute correct fingerprints
+                    const derBytes = forge.asn1.toDer(forge.pki.certificateToAsn1(cert)).getBytes();
+                    const sha1Hex = forge.md.sha1.create().update(derBytes).digest().toHex().toUpperCase();
+                    const sha256Hex = forge.md.sha256.create().update(derBytes).digest().toHex().toUpperCase();
+
+                    const sha1Fingerprint = sha1Hex.match(/.{1,2}/g).join(':');
+                    const sha256Fingerprint = sha256Hex.match(/.{1,2}/g).join(':');
+
+                    const pem = forge.pki.certificateToPem(cert);
+
+                    certDetails.push({
+                        subject,
+                        issuer,
+                        serialNumber: cert.serialNumber,
+                        notBefore: cert.validity.notBefore,
+                        notAfter: cert.validity.notAfter,
+                        sha1Fingerprint,
+                        sha256Fingerprint,
+                        pem,
+                        isSigner
+                    });
+                });
+
+                updateStep(elStepParse, 'completed');
+                displaySignedResults(pkgId, version, fileSizeKB, nuspecMeta, packageHashStr, certDetails);
+
+            } catch (err) {
+                console.error(err);
+                elErrorMessage.textContent = err.message || "An unexpected error occurred.";
+                showPanel(elPanelError);
+            }
+        }
+
+        /**
+         * Switches the active panel view.
+         * @param {HTMLElement} panel - The panel element to display.
+         */
+        function showPanel(panel) {
+            elPanelWelcome.classList.remove('active');
+            elPanelLoading.classList.remove('active');
+            elPanelError.classList.remove('active');
+            elPanelResults.classList.remove('active');
+
+            panel.classList.add('active');
+        }
+
+        /**
+         * Updates the UI state of the loading tracker.
+         * @param {HTMLElement} element - The step container element.
+         * @param {string} status - 'pending', 'running', or 'completed'.
+         */
+        function updateStep(element, status) {
+            element.className = "step-item " + status;
+            const icon = element.querySelector('.step-icon');
+
+            if (status === 'completed') {
+                icon.innerHTML = `<svg style="width:1rem; height:1rem;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path></svg>`;
+            } else if (status === 'running') {
+                icon.innerHTML = element.dataset.originalIndex || icon.innerHTML;
+                element.dataset.originalIndex = icon.innerHTML; // save for revert if needed
+            }
+        }
+
+        /**
+         * Parses the package .nuspec XML file to extract basic metadata.
+         * @param {string} xmlString - The raw XML content.
+         * @returns {Object} Extracted metadata properties.
+         */
+        function parseNuspec(xmlString) {
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(xmlString, "text/xml");
+            const metadata = doc.getElementsByTagName("metadata")[0];
+
+            if (!metadata) return { description: 'N/A', authors: 'N/A', projectUrl: 'N/A', license: 'N/A' };
+
+            const description = metadata.getElementsByTagName("description")[0]?.textContent || 'N/A';
+            const authors = metadata.getElementsByTagName("authors")[0]?.textContent || 'N/A';
+            const projectUrl = metadata.getElementsByTagName("projectUrl")[0]?.textContent || 'N/A';
+            const license = metadata.getElementsByTagName("license")[0]?.textContent ||
+                metadata.getElementsByTagName("licenseUrl")[0]?.textContent || 'N/A';
+
+            return { description, authors, projectUrl, license };
+        }
+
+        /**
+         * Formats a Distinguished Name (DN) from node-forge into a readable string and component dictionary.
+         * @param {Object} dn - The distinguished name object from forge.
+         * @returns {Object} An object containing the formatted string and parsed details.
+         */
+        function formatDN(dn) {
+            const parts = [];
+            const details = {};
+            dn.attributes.forEach(attr => {
+                const short = attr.shortName || '';
+                const name = attr.name || '';
+                const value = attr.value || '';
+
+                let key = short;
+                if (!key) {
+                    if (name === 'commonName') key = 'CN';
+                    else if (name === 'organizationName') key = 'O';
+                    else if (name === 'organizationalUnitName') key = 'OU';
+                    else if (name === 'countryName') key = 'C';
+                    else if (name === 'localityName') key = 'L';
+                    else if (name === 'stateOrProvinceName') key = 'ST';
+                }
+
+                if (key) {
+                    details[key] = value;
+                    parts.push(`${key}=${value}`);
+                } else {
+                    parts.push(`${name || attr.type}=${value}`);
+                }
+            });
+            return {
+                string: parts.join(', '),
+                details
+            };
+        }
+
+        /**
+         * Normalizes hex strings for comparison.
+         * @param {string} hex 
+         * @returns {string}
+         */
+        function normalizeHex(hex) {
+            if (!hex) return '';
+            return hex.replace(/^0x/i, '').replace(/[\s:]/g, '').toLowerCase();
+        }
+
+        /**
+         * Formats a JavaScript Date object into a readable local string.
+         * @param {Date} date 
+         * @returns {string}
+         */
+        function formatDate(date) {
+            if (!date) return 'N/A';
+            return new Date(date).toLocaleString(undefined, {
+                year: 'numeric',
+                month: 'short',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+        }
+
+        /**
+         * Determines if a certificate is currently valid based on its start/end dates.
+         * @param {Date} notBefore 
+         * @param {Date} notAfter 
+         * @returns {Object} A styling and text object representing the status.
+         */
+        function getCertStatus(notBefore, notAfter) {
+            const now = new Date();
+            const start = new Date(notBefore);
+            const end = new Date(notAfter);
+            if (now < start) {
+                return { text: 'Not Yet Active', class: 'badge-warning' };
+            } else if (now > end) {
+                return { text: 'Expired', class: 'badge-danger' };
+            } else {
+                return { text: 'Valid', class: 'badge-success' };
+            }
+        }
+
+        /**
+         * Renders the Results Panel for a package that DOES NOT have a signature.
+         */
+        function displayUnsignedResults(id, version, size, nuspec, hash) {
+            populateBaseDetails(id, version, size, nuspec, hash);
+
+            // Status: Unsigned warning
+            document.getElementById('res-sign-status').innerHTML = `
+                <div class="badge badge-warning" style="font-size:0.875rem; padding:0.375rem 1rem;">
+                    <svg style="width:1rem; height:1rem; margin-right:0.375rem;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                    Unsigned Package
+                </div>
+            `;
+
+            // Certificates container shows explanation
+            document.getElementById('certificates-list').innerHTML = `
+                <div class="card panel-center" style="padding:3rem;">
+                    <svg style="width:3rem; height:3rem; color:var(--border-light); margin-bottom:1rem;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"></path></svg>
+                    <h4 style="font-weight:700; font-size:1.125rem; margin-bottom:0.25rem;">No Signatures Found</h4>
+                    <p style="font-size:0.875rem; color:var(--text-secondary); max-width:400px; margin:0 auto;">This package does not contain a <code>.signature.p7s</code> file and has not been author-signed or repository-signed.</p>
+                </div>
+            `;
+
+            showPanel(elPanelResults);
+        }
+
+        /**
+         * Renders the Results Panel for a package that DOES have a signature chain.
+         */
+        function displaySignedResults(id, version, size, nuspec, hash, certs) {
+            populateBaseDetails(id, version, size, nuspec, hash);
+
+            // Status: Signed green badge
+            document.getElementById('res-sign-status').innerHTML = `
+                <div class="badge badge-success" style="font-size:0.875rem; padding:0.375rem 1rem;">
+                    <svg style="width:1.25rem; height:1.25rem; margin-right:0.375rem;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>
+                    Signed Certificate Verified
+                </div>
+            `;
+
+            // Clear certificates list
+            const certsList = document.getElementById('certificates-list');
+            certsList.innerHTML = '';
+
+            if (certs.length === 0) {
+                certsList.innerHTML = `
+                    <div class="card" style="background-color:var(--warning-bg); border-color:var(--warning-color); color:var(--warning-color);">
+                        Package has a signature block but no certificates were embedded in the chain.
+                    </div>
+                `;
+                showPanel(elPanelResults);
+                return;
+            }
+
+            // Populate certificates
+            certs.forEach((cert, idx) => {
+                const status = getCertStatus(cert.notBefore, cert.notAfter);
+                const roleBadge = cert.isSigner ?
+                    `<span class="badge badge-primary" style="font-size:0.65rem;">SIGNING CERTIFICATE</span>` :
+                    `<span class="badge badge-secondary" style="font-size:0.65rem;">CA / INTERMEDIATE</span>`;
+
+                const cnName = cert.subject.details.CN || cert.subject.string || "Certificate";
+                const card = document.createElement('div');
+                card.className = "cert-card";
+
+                card.innerHTML = `
+                    <!-- Card Header -->
+                    <div class="cert-header">
+                        <div class="cert-title-group">
+                            <span class="cert-index">${idx + 1}</span>
+                            <h4 style="font-weight:700; max-width:300px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${cnName}">${cnName}</h4>
+                            ${roleBadge}
+                        </div>
+                        <span class="badge ${status.class}">${status.text}</span>
+                    </div>
+
+                    <!-- Card Body -->
+                    <div class="cert-body">
+                        
+                        <!-- Subject & Issuer Details -->
+                        <div class="cert-grid-2">
+                            <div>
+                                <span class="cert-field-label">Subject (Distinguished Name)</span>
+                                <div class="cert-field-value text-mono">
+                                    ${cert.subject.string}
+                                </div>
+                            </div>
+                            <div>
+                                <span class="cert-field-label">Issuer (Distinguished Name)</span>
+                                <div class="cert-field-value text-mono">
+                                    ${cert.issuer.string}
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Technical Meta fields -->
+                        <div class="cert-grid-3">
+                            <div>
+                                <span class="cert-field-label" style="text-transform:none; font-weight:500;">Serial Number</span>
+                                <p class="text-mono" style="font-size:0.75rem; word-break:break-all; text-transform:uppercase;" title="${cert.serialNumber}">${cert.serialNumber}</p>
+                            </div>
+                            <div>
+                                <span class="cert-field-label" style="text-transform:none; font-weight:500;">Valid From</span>
+                                <p style="font-size:0.75rem; font-weight:500;">${formatDate(cert.notBefore)}</p>
+                            </div>
+                            <div>
+                                <span class="cert-field-label" style="text-transform:none; font-weight:500;">Valid To</span>
+                                <p style="font-size:0.75rem; font-weight:500;">${formatDate(cert.notAfter)}</p>
+                            </div>
+                        </div>
+
+                        <!-- Fingerprints SHA-1 / SHA-256 -->
+                        <div style="border-top:1px solid var(--border-color); padding-top:1rem;">
+                            <span class="cert-field-label">Cryptographic Fingerprints</span>
+                            
+                            <!-- SHA-256 -->
+                            <div class="fingerprint-row">
+                                <div style="display:flex; align-items:center; gap:0.5rem; width:100%;">
+                                    <span class="badge badge-info" style="font-size:0.65rem; background-color:var(--info-bg); color:var(--info-color); border:1px solid rgba(59, 130, 246, 0.2);">SHA-256</span>
+                                    <span id="fp-sha256-${idx}" class="text-mono" style="font-size:0.75rem; word-break:break-all;">${cert.sha256Fingerprint}</span>
+                                </div>
+                                <button onclick="copyToClipboard(document.getElementById('fp-sha256-${idx}').textContent, this, 'fingerprint')" class="btn-icon" style="padding:0.25rem;" title="Copy Fingerprint">
+                                    <svg style="width:1rem; height:1rem;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"></path></svg>
+                                </button>
+                            </div>
+
+                            <!-- SHA-1 -->
+                            <div class="fingerprint-row">
+                                <div style="display:flex; align-items:center; gap:0.5rem; width:100%;">
+                                    <span class="badge badge-secondary" style="font-size:0.65rem;">SHA-1</span>
+                                    <span id="fp-sha1-${idx}" class="text-mono" style="font-size:0.75rem; word-break:break-all;">${cert.sha1Fingerprint}</span>
+                                </div>
+                                <button onclick="copyToClipboard(document.getElementById('fp-sha1-${idx}').textContent, this, 'fingerprint')" class="btn-icon" style="padding:0.25rem;" title="Copy Fingerprint">
+                                    <svg style="width:1rem; height:1rem;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"></path></svg>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Raw PEM Toggle -->
+                        <div style="border-top:1px solid var(--border-color); padding-top:1rem;">
+                            <button onclick="togglePem(${idx})" style="background:transparent; border:none; cursor:pointer; font-size:0.75rem; font-weight:600; color:var(--primary-color); display:flex; align-items:center;">
+                                <svg id="pem-arrow-${idx}" style="width:1rem; height:1rem; margin-right:0.25rem; transition:transform var(--transition-speed);" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+                                View Raw PEM Certificate block
+                            </button>
+                            <div id="pem-block-${idx}" style="display:none; margin-top:0.75rem; position:relative;">
+                                <textarea readonly class="pem-textarea">${cert.pem}</textarea>
+                                <button onclick="copyToClipboard(this.previousElementSibling.value, this)" class="btn-icon" style="position:absolute; right:0.5rem; top:0.5rem; background-color:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.2); color:white;" title="Copy PEM Data">
+                                    <svg style="width:1rem; height:1rem;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"></path></svg>
+                                </button>
+                            </div>
+                        </div>
+
+                    </div>
+                `;
+                certsList.appendChild(card);
+            });
+
+            showPanel(elPanelResults);
+        }
+
+        /**
+         * Utility to populate the generic package metadata fields in the UI.
+         */
+        function populateBaseDetails(id, version, size, nuspec, hash) {
+            document.getElementById('res-pkg-title').textContent = id;
+            document.getElementById('res-pkg-ver').textContent = version;
+            document.getElementById('res-pkg-size').textContent = size ? `${size} KB` : 'N/A';
+            document.getElementById('res-pkg-desc').textContent = nuspec.description || 'No description available in nuspec.';
+            document.getElementById('res-pkg-authors').textContent = nuspec.authors || 'N/A';
+            document.getElementById('res-pkg-hash').textContent = hash || 'N/A';
+            document.getElementById('res-pkg-hash').setAttribute('title', hash || '');
+
+            const resUrl = document.getElementById('res-pkg-url');
+            if (nuspec.projectUrl && nuspec.projectUrl !== 'N/A') {
+                resUrl.innerHTML = `<a href="${nuspec.projectUrl}" target="_blank" style="display:flex; align-items:center;">${nuspec.projectUrl.replace(/^https?:\/\//i, '')} <svg style="width:0.875rem; height:0.875rem; margin-left:0.25rem;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg></a>`;
+            } else {
+                resUrl.textContent = 'N/A';
+            }
+
+            const resLicense = document.getElementById('res-pkg-license');
+            if (nuspec.license && nuspec.license !== 'N/A') {
+                resLicense.textContent = nuspec.license;
+            } else {
+                resLicense.textContent = 'N/A';
+            }
+        }
+
+        /**
+         * Toggles the visibility of the raw PEM text area for a specific certificate.
+         * @param {number} idx - Index of the certificate card.
+         */
+        window.togglePem = function (idx) {
+            const block = document.getElementById(`pem-block-${idx}`);
+            const arrow = document.getElementById(`pem-arrow-${idx}`);
+            if (block.style.display === 'none') {
+                block.style.display = 'block';
+                arrow.style.transform = 'rotate(90deg)';
+            } else {
+                block.style.display = 'none';
+                arrow.style.transform = 'rotate(0deg)';
+            }
+        }
+
+        /**
+         * Copies text to the system clipboard and briefly changes the icon to a checkmark.
+         * @param {string} text - Text to copy.
+         * @param {HTMLElement} btn - The button element that triggered the copy.
+         */
+        window.copyToClipboard = function (text, btn, copyType = 'text') {
+            const textToCopy = copyType === 'fingerprint' && !elFingerprintCopyWithColons.checked
+                ? text.replace(/:/g, '')
+                : text;
+
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(textToCopy).then(() => showSuccessIcon(btn)).catch(err => copyFallback(textToCopy, btn));
+            } else {
+                copyFallback(textToCopy, btn);
+            }
+        }
+
+        /**
+         * Fallback for older browsers without navigator.clipboard API.
+         */
+        function copyFallback(text, btn) {
+            try {
+                // Using document.execCommand as requested by generic guidelines,
+                // though modern apps prefer navigator.clipboard.
+                const textArea = document.createElement("textarea");
+                textArea.value = text;
+                textArea.style.position = "fixed";  // Avoid scrolling to bottom
+                document.body.appendChild(textArea);
+                textArea.focus();
+                textArea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textArea);
+                showSuccessIcon(btn);
+            } catch (err) {
+                console.error('Fallback: Oops, unable to copy', err);
+            }
+        }
+
+        /**
+         * Temporarily replaces a button's content with a success checkmark.
+         */
+        function showSuccessIcon(btn) {
+            const oldHTML = btn.innerHTML;
+            btn.innerHTML = `<svg style="width:1rem; height:1rem; color:var(--success-color);" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path></svg>`;
+            setTimeout(() => {
+                btn.innerHTML = oldHTML;
+            }, 1500);
+        }
+
+        // Run Initialization
+        init();
+
+    </script>
+</body>
+
+</html>
