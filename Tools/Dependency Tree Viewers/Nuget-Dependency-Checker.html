@@ -240,6 +240,48 @@
 
         .hidden { display: none !important; }
         .error-msg { color: var(--error); padding: 10px; text-align: center; font-weight: bold; }
+
+        /* Modal Styles */
+        .modal {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.6);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+        }
+        .modal-content {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 20px;
+            width: 90%;
+            max-width: 650px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+            position: relative;
+        }
+        .close-btn {
+            position: absolute;
+            top: 15px; right: 15px;
+            cursor: pointer;
+            font-size: 1.2rem;
+            color: var(--text-secondary);
+        }
+        .close-btn:hover { color: var(--text-primary); }
+        .metadata-row {
+            margin-bottom: 8px;
+            font-size: 0.9rem;
+            word-break: break-word;
+        }
+        .metadata-label {
+            font-weight: bold;
+            color: var(--accent);
+            display: inline-block;
+            width: 100px;
+        }
+        .package-card { cursor: pointer; }
+        .package-card:hover { border-color: var(--accent); }
     </style>
 </head>
 <body>
@@ -267,25 +309,39 @@
 
 <div id="status-bar">Ready</div>
 
+<div id="packageModal" class="modal hidden">
+    <div class="modal-content">
+        <span class="close-btn" id="closeModalBtn">&times;</span>
+        <h2 id="modalTitle" style="margin-top: 0;">Package Details</h2>
+        <div id="modalBody"></div>
+    </div>
+</div>
+
 <script>
-    const packageInput = document.getElementById('packageInput');
+ const packageInput = document.getElementById('packageInput');
     const analyzeBtn = document.getElementById('analyzeBtn');
     const treeView = document.getElementById('treeView');
     const welcomeScreen = document.getElementById('welcomeScreen');
     const statusBar = document.getElementById('status-bar');
     const filterArea = document.getElementById('filterArea');
+    const packageModal = document.getElementById('packageModal');
+    const closeModalBtn = document.getElementById('closeModalBtn');
+    const modalTitle = document.getElementById('modalTitle');
+    const modalBody = document.getElementById('modalBody');
 
     // State
     let serviceIndex = null;
     let registrationBaseUrl = null;
     let flatContainerBaseUrl = null;
     let searchBaseUrl = null;
-    
+
     let rootNode = null;
     const fetchCache = new Map();
     const verificationCache = new Map();
+    const ownersCache = new Map();
+    const httpCache = new Map();
     const visitedInCurrentPath = new Set();
-    
+
     // Namespace management - Store as Map to track verification metadata
     let allNamespaces = new Map();
     const hiddenNamespaces = new Set();
@@ -297,23 +353,39 @@
             </svg>
         </div>`;
 
+    closeModalBtn.addEventListener('click', () => packageModal.classList.add('hidden'));
+    packageModal.addEventListener('click', (e) => {
+        if (e.target === packageModal) packageModal.classList.add('hidden');
+    });
+
+    async function fetchJsonCached(url) {
+        if (httpCache.has(url)) {
+            return httpCache.get(url);
+        }
+        const resp = await fetch(url);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const data = await resp.json();
+        httpCache.set(url, data);
+        return data;
+    }
+
     async function initServiceIndex() {
         if (serviceIndex) return true;
         updateStatus("Fetching NuGet Service Index...");
         try {
-            const response = await fetch('https://api.nuget.org/v3/index.json');
-            serviceIndex = await response.json();
-            
-            const regResource = serviceIndex.resources.find(r => r['@type'] === 'RegistrationsBaseUrl/3.6.0') 
-                             || serviceIndex.resources.find(r => r['@type'] === 'RegistrationsBaseUrl');
+            const data = await fetchJsonCached('https://api.nuget.org/v3/index.json');
+            serviceIndex = data;
+
+            const regResource = serviceIndex.resources.find(r => r['@type'] === 'RegistrationsBaseUrl/3.6.0')
+                || serviceIndex.resources.find(r => r['@type'] === 'RegistrationsBaseUrl');
             const flatResource = serviceIndex.resources.find(r => r['@type'] === 'PackageBaseAddress/3.0.0');
             const searchResource = serviceIndex.resources.find(r => r['@type'] === 'SearchQueryService/3.5.0')
-                                || serviceIndex.resources.find(r => r['@type'] === 'SearchQueryService');
+                || serviceIndex.resources.find(r => r['@type'] === 'SearchQueryService');
 
             registrationBaseUrl = regResource['@id'];
             flatContainerBaseUrl = flatResource['@id'];
             searchBaseUrl = searchResource['@id'];
-            
+
             return true;
         } catch (e) {
             updateStatus("Failed to load NuGet Service Index.");
@@ -324,7 +396,7 @@
     analyzeBtn.addEventListener('click', async () => {
         const pkg = packageInput.value.trim();
         if (!pkg) return;
-        
+
         const initialized = await initServiceIndex();
         if (!initialized) return;
 
@@ -347,9 +419,10 @@
         filterArea.classList.add('hidden');
         fetchCache.clear();
         verificationCache.clear();
+        httpCache.clear();
         visitedInCurrentPath.clear();
         allNamespaces.clear();
-        
+
         analyzeBtn.disabled = true;
         updateStatus(`Analyzing ${packageId}...`);
 
@@ -374,8 +447,7 @@
 
     async function buildDependencyTree(id, versionConstraint = null, depth = 0) {
         const idLower = id.toLowerCase();
-        
-        // Track namespace
+
         const ns = id.split('.')[0];
         if (!allNamespaces.has(ns)) {
             allNamespaces.set(ns, { isVerified: false });
@@ -391,7 +463,9 @@
             dependencies: [],
             isCircular: false,
             isError: false,
-            isVerified: false
+            isVerified: false,
+            metadata: null,
+            owners: []
         };
 
         if (visitedInCurrentPath.has(idLower)) {
@@ -406,15 +480,18 @@
         visitedInCurrentPath.add(idLower);
 
         try {
-            // Concurrent fetch of metadata and verification status
-            const [metadata, isVerified] = await Promise.all([
+            const [metadata, isVerified, owners, nugetUrl] = await Promise.all([
                 getPackageMetadata(idLower, version),
-                checkVerification(id)
+                checkVerification(id),
+                getOwners(id),
+                getNugetOrgUrl(id)
             ]);
-            
+
             node.isVerified = isVerified;
-            
-            // If any package in this namespace is verified, mark the namespace as verified for filters
+            node.metadata = metadata;
+            node.owners = owners;
+            node.nugetUrl = nugetUrl;
+
             if (isVerified) {
                 allNamespaces.get(ns).isVerified = true;
             }
@@ -445,26 +522,42 @@
         return node;
     }
 
-    /**
-     * Uses the SearchQueryService to check if a package ID is verified (reserved prefix).
-     */
+    async function getNugetOrgUrl(id) {
+        return "https://www.nuget.org/packages/" + (id);
+    }
+
+    async function getOwners(id) {
+        if (ownersCache.has(id.toLowerCase())) {
+            return ownersCache.get(id.toLowerCase());
+        }
+
+        try {
+            const url = `${searchBaseUrl}?q=packageid:${id}&take=1`;
+            const data = await fetchJsonCached(url);
+            const result = data.data && data.data[0];
+
+            // Get owners string array
+            const owners = result && result.owners ? result.owners : [];
+
+            ownersCache.set(id.toLowerCase(), owners);
+            return owners;
+        } catch (e) {
+            return false;
+        }
+    }
+
     async function checkVerification(id) {
         if (verificationCache.has(id.toLowerCase())) {
             return verificationCache.get(id.toLowerCase());
         }
 
         try {
-            // Precise query for the package ID
             const url = `${searchBaseUrl}?q=packageid:${id}&take=1`;
-            const resp = await fetch(url);
-            if (!resp.ok) return false;
-            
-            const data = await resp.json();
+            const data = await fetchJsonCached(url);
             const result = data.data && data.data[0];
-            
-            // The Search API result contains the 'verified' boolean we need
+
             const isVerified = result && result.id.toLowerCase() === id.toLowerCase() && !!result.verified;
-            
+
             verificationCache.set(id.toLowerCase(), isVerified);
             return isVerified;
         } catch (e) {
@@ -475,9 +568,7 @@
     async function resolveVersion(idLower, constraint) {
         const url = `${flatContainerBaseUrl}${idLower}/index.json`;
         try {
-            const resp = await fetch(url);
-            if (!resp.ok) return "latest";
-            const data = await resp.json();
+            const data = await fetchJsonCached(url);
             const versions = data.versions;
             if (!constraint || constraint === '*' || constraint === '') {
                 const stable = versions.filter(v => !v.includes('-')).reverse();
@@ -491,9 +582,7 @@
     async function getPackageMetadata(idLower, version) {
         const url = `${registrationBaseUrl}${idLower}/index.json`;
         try {
-            const resp = await fetch(url);
-            if (!resp.ok) return null;
-            const data = await resp.json();
+            const data = await fetchJsonCached(url);
             return await findLeafInRegistration(data, version);
         } catch (e) { return null; }
     }
@@ -505,8 +594,7 @@
                 if (found) return found.catalogEntry;
             } else {
                 try {
-                    const pageResp = await fetch(page['@id']);
-                    const pageData = await pageResp.json();
+                    const pageData = await fetchJsonCached(page['@id']);
                     const found = pageData.items.find(leaf => leaf.catalogEntry.version.toLowerCase() === version.toLowerCase());
                     if (found) return found.catalogEntry;
                 } catch (err) { continue; }
@@ -514,8 +602,6 @@
         }
         return (indexData.items[0] && indexData.items[0].items) ? indexData.items[0].items[0].catalogEntry : null;
     }
-
-    // --- Filtering Logic ---
 
     function updateFilterUI() {
         const sortedNamespaces = Array.from(allNamespaces.keys()).sort();
@@ -527,7 +613,7 @@
             const meta = allNamespaces.get(ns);
             const labelEl = document.createElement('label');
             labelEl.className = 'filter-item';
-            
+
             const cb = document.createElement('input');
             cb.type = 'checkbox';
             cb.checked = !hiddenNamespaces.has(ns);
@@ -538,12 +624,11 @@
             });
 
             labelEl.appendChild(cb);
-            
+
             const textSpan = document.createElement('span');
             textSpan.textContent = ns + '.*';
             labelEl.appendChild(textSpan);
 
-            // Add verification badge in filter too
             if (meta.isVerified) {
                 const badgeContainer = document.createElement('div');
                 badgeContainer.innerHTML = VERIFIED_SVG;
@@ -575,25 +660,26 @@
 
         const ul = document.createElement('ul');
         ul.className = 'tree';
-        
+
         const li = document.createElement('li');
         li.className = 'node';
 
         const card = document.createElement('div');
         card.className = 'package-card';
         if (vis.isPassthrough) card.classList.add('filtered-passthrough');
-        
-        let content = `<span class="package-name">${node.id}</span>`;
-        
-        // Verification badge (blue check)
-        if (node.isVerified) {
-            content += VERIFIED_SVG;
-        }
 
+        let content = `<span class="package-name">${node.id}</span>`;
+        if (node.isVerified) content += VERIFIED_SVG;
         content += `<span class="package-version">${node.version}</span>`;
         if (node.isCircular) content += `<span class="circular-badge">Circular</span>`;
-        
+
         card.innerHTML = content;
+
+        card.addEventListener('click', (e) => {
+            e.stopPropagation();
+            showPackageInfo(node);
+        });
+
         li.appendChild(card);
         ul.appendChild(li);
 
@@ -606,6 +692,41 @@
         }
 
         container.appendChild(ul);
+    }
+
+    function showPackageInfo(node) {
+        modalTitle.textContent = `${node.id} (${node.version})`;
+
+        let bodyHtml = '';
+        if (node.isVerified) {
+            bodyHtml += `<div class="metadata-row"><span class="metadata-label">Status:</span> <span style="color: var(--verified)">Verified Prefix ✔️</span></div>`;
+        }
+
+        if (node.metadata) {
+            const m = node.metadata;
+            const authors = m.authors || 'N/A';
+            const owners = (node.owners && node.owners.length > 0) ? node.owners.join(', ') : 'N/A';
+            const nugetUrl = node.nugetUrl ? `<a href="${node.nugetUrl}" target="_blank" style="color: var(--accent)">${node.nugetUrl}</a>` : 'N/A';
+            const desc = m.description || 'No description provided.';
+            const projUrl = m.projectUrl ? `<a href="${m.projectUrl}" target="_blank" style="color: var(--accent)">${m.projectUrl}</a>` : 'N/A';
+            const licenseUrl = m.licenseUrl ? `<a href="${m.licenseUrl}" target="_blank" style="color: var(--accent)">${m.licenseUrl}</a>` : 'N/A';
+            const tags = (m.tags && m.tags.length > 0) ? m.tags.join(', ') : 'None';
+
+            bodyHtml += `
+                <div class="metadata-row"><span class="metadata-label">Authors:</span> ${authors}</div>
+                <div class="metadata-row"><span class="metadata-label">Owners:</span> ${owners}</div>
+                <div class="metadata-row"><span class="metadata-label">Description:</span> ${desc}</div>
+                <div class="metadata-row"><span class="metadata-label">Tags:</span> ${tags}</div>
+                <div class="metadata-row"><span class="metadata-label">NuGet URL:</span> ${nugetUrl}</div>
+                <div class="metadata-row"><span class="metadata-label">Project URL:</span> ${projUrl}</div>
+                <div class="metadata-row"><span class="metadata-label">License URL:</span> ${licenseUrl}</div>
+            `;
+        } else {
+            bodyHtml += `<div class="metadata-row" style="color: var(--text-secondary)">Detailed metadata not available.</div>`;
+        }
+
+        modalBody.innerHTML = bodyHtml;
+        packageModal.classList.remove('hidden');
     }
 </script>
 
