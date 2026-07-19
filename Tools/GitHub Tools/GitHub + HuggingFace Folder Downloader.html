@@ -102,6 +102,7 @@
         .gap-2 { gap: 0.5rem; }
         .gap-3 { gap: 0.75rem; }
         .gap-4 { gap: 1rem; }
+        .gap-5 { gap: 1.25rem; }
         .gap-6 { gap: 1.5rem; }
         
         .w-full { width: 100%; }
@@ -115,11 +116,22 @@
         .overflow-y-auto { overflow-y: auto; }
         .truncate { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-        .text-xs { font-size: 0.75rem; line-height: 1rem; }
+        .text-xs { font-size: 0.80rem; line-height: 1rem; }
         .text-sm { font-size: 0.875rem; line-height: 1.25rem; }
         .text-base { font-size: 1rem; line-height: 1.5rem; }
         .text-lg { font-size: 1.125rem; line-height: 1.75rem; }
         .text-xl { font-size: 1.25rem; line-height: 1.75rem; }
+        .text-tiny { font-size: 0.725rem; }
+        
+        .text-muted { color: var(--text-muted); }
+        .text-faint { color: var(--text-faint); }
+        
+        .input-help {
+            font-size: 0.725rem;
+            color: var(--text-faint);
+            margin-top: 0.25rem;
+            line-height: 1.4;
+        }
         
         .font-mono { font-family: var(--font-mono); }
         .font-semibold { font-weight: 600; }
@@ -251,8 +263,18 @@
             font-weight: 500;
             color: var(--text-muted);
             margin-bottom: 0.5rem;
-            text-transform: uppercase;
             letter-spacing: 0.05em;
+        }
+        .input-group label a {
+            color: var(--brand-light);
+            text-decoration: underline;
+            font-weight: 500;
+        }
+        .input-group label a:visited {
+            color: var(--brand-light);
+        }
+        .input-group label a:hover {
+            color: var(--text-primary);
         }
         .input-field {
             width: 100%;
@@ -407,7 +429,7 @@
         /* Modals */
         .modal-overlay {
             position: fixed; inset: 0; z-index: 50;
-            display: flex; items-center; justify-content: center;
+            display: flex; align-items: center; justify-content: center;
             background-color: rgba(2, 6, 23, 0.8);
             backdrop-filter: blur(4px);
             padding: 1rem;
@@ -462,7 +484,7 @@
                 
                 <div class="flex flex-col gap-4">
                     <div class="input-group">
-                        <label for="repo-url">Repository Folder URL</label>
+                        <label for="repo-url">REPOSITORY FOLDER URL</label>
                         <input type="text" id="repo-url" 
                                placeholder="e.g., https://huggingface.co/microsoft/Phi-4/tree/main/gpu"
                                class="input-field">
@@ -499,10 +521,10 @@
                         <label id="label-mode-folder" class="radio-card group">
                             <input type="radio" name="download_mode" value="folder" checked onchange="updateModeVisuals()">
                             <div class="radio-content flex-grow">
-                                <div class="text-sm font-bold text-primary transition" style="margin-bottom: 0.25rem;">
+                                <div class="text-sm font-bold text-primary transition">
                                     <span id="icon-folder-plus" style="color: var(--text-muted); margin-right: 0.375rem;"></span> Download to Folder (Direct)
                                 </div>
-                                <div style="font-size: 0.625rem; color: var(--text-muted);">Saves folder structures recursively directly to disk as they stream. (Chromium browsers only)</div>
+                                <div class="input-help">Saves folder structures recursively directly to disk as they stream. (Chromium browsers only)</div>
                                 <div class="radio-border"></div>
                             </div>
                         </label>
@@ -511,10 +533,10 @@
                         <label id="label-mode-zip" class="radio-card group">
                             <input type="radio" name="download_mode" value="zip" onchange="updateModeVisuals()">
                             <div class="radio-content flex-grow">
-                                <div class="text-sm font-bold text-primary transition" style="margin-bottom: 0.25rem;">
+                                <div class="text-sm font-bold text-primary transition">
                                     <span id="icon-zip" style="color: var(--text-muted); margin-right: 0.375rem;"></span> Download then ZIP
                                 </div>
-                                <div style="font-size: 0.625rem; color: var(--text-muted);">Downloads all files into system RAM first, then bundles them into a single .zip file.</div>
+                                <div class="input-help">Downloads all files into system RAM first, then bundles them into a single .zip file.</div>
                                 <div class="radio-border"></div>
                             </div>
                         </label>
@@ -539,11 +561,11 @@
 
                     <div class="flex gap-3 text-center" style="margin-bottom: 1rem;">
                         <div class="flex-grow" style="padding: 0.5rem; background-color: rgba(2, 6, 23, 0.6); border-radius: 0.5rem; border: 1px solid var(--border-default);">
-                            <div style="font-size: 0.625rem; color: var(--text-faint); text-transform: uppercase;">Downloaded</div>
+                            <div class="text-tiny text-faint" style="text-transform: uppercase;">Downloaded</div>
                             <div id="stats-downloaded" class="text-sm font-bold" style="color: var(--text-secondary)">0 / 0</div>
                         </div>
                         <div class="flex-grow" style="padding: 0.5rem; background-color: rgba(2, 6, 23, 0.6); border-radius: 0.5rem; border: 1px solid var(--border-default);">
-                            <div style="font-size: 0.625rem; color: var(--text-faint); text-transform: uppercase;">Transfer Rate</div>
+                            <div class="text-tiny text-faint" style="text-transform: uppercase;">Transfer Rate</div>
                             <div id="stats-speed" class="text-sm font-bold" style="color: var(--text-secondary)">0 KB/s</div>
                         </div>
                     </div>
@@ -635,10 +657,10 @@
                     <span class="text-xs font-mono" style="color: var(--text-muted); margin-left: 0.5rem;">Console Operations Log</span>
                 </div>
                 <div class="flex gap-2">
-                    <button onclick="clearConsoleLog()" style="padding: 0.25rem 0.625rem; font-size: 0.625rem; background-color: var(--bg-elevated); color: var(--text-secondary); border-radius: 0.25rem; border: 1px solid var(--border-default); cursor: pointer;">
+                    <button onclick="clearConsoleLog()" class="btn text-tiny" style="padding: 0.25rem 0.625rem; background-color: var(--bg-elevated); color: var(--text-secondary); border-radius: 0.25rem; border: 1px solid var(--border-default); cursor: pointer;">
                         Clear
                     </button>
-                    <button onclick="copyConsoleLog()" style="padding: 0.25rem 0.625rem; font-size: 0.625rem; background-color: var(--bg-elevated); color: var(--text-secondary); border-radius: 0.25rem; border: 1px solid var(--border-default); cursor: pointer;">
+                    <button onclick="copyConsoleLog()" class="btn text-tiny" style="padding: 0.25rem 0.625rem; background-color: var(--bg-elevated); color: var(--text-secondary); border-radius: 0.25rem; border: 1px solid var(--border-default); cursor: pointer;">
                         Copy
                     </button>
                 </div>
@@ -670,13 +692,12 @@
             
             <div class="flex flex-col gap-5" style="padding: 1.5rem;">
                 <div class="input-group">
-                    <label for="setting-cors-proxy">CORS Proxy Address</label>
+                    <label for="setting-cors-proxy">CORS PROXY ADDRESS</label>
                     <input type="text" id="setting-cors-proxy" class="input-field">
-                    <p style="font-size: 0.625rem; color: var(--text-faint); margin-top: 0.25rem;">If direct requests fail. Use <code style="background-color: var(--bg-body); padding: 0.125rem; border-radius: 0.25rem; color: var(--brand-light);">https://localhost:5001/?url={TheUrl}</code> or leave empty to fetch directly.</p>
-                </div>
+                    <p class="input-help">Enter a prefix such as <code style="background-color: var(--bg-body); padding: 0.125rem; border-radius: 0.25rem; color: var(--brand-light);">https://localhost:5001/?url=</code> to route all traffic through a proxy (the target URL will be appended, URL-encoded), or leave empty to fetch directly.</p>                </div>
 
                 <div class="input-group">
-                    <label for="setting-concurrent-downloads">Max Concurrent Downloads</label>
+                    <label for="setting-concurrent-downloads">MAX CONCURRENT DOWNLOADS</label>
                     <div class="flex items-center gap-3">
                         <input type="range" id="setting-concurrent-downloads" min="1" max="10" step="1" oninput="updateThreadsLabel(this.value)" style="flex-grow: 1; height: 0.375rem; background-color: var(--bg-body); border-radius: 0.5rem; appearance: none; cursor: pointer; accent-color: var(--brand-main);">
                         <span id="threads-label" class="font-mono text-center" style="padding: 0.25rem 0.625rem; font-size: 0.75rem; background-color: var(--bg-body); color: var(--brand-light); border-radius: 0.25rem; border: 1px solid var(--border-default); width: 2.5rem;">3</span>
@@ -684,15 +705,15 @@
                 </div>
 
                 <div class="input-group">
-                    <label for="setting-github-token">GitHub Personal Access Token (PAT)</label>
+                    <label for="setting-github-token">GITHUB PERSONAL ACCESS TOKEN <a href="https://github.com/settings/personal-access-tokens" target="_blank" rel="noopener noreferrer">(Token Settings)</a></label>
                     <input type="password" id="setting-github-token" placeholder="Optional" class="input-field">
-                    <p style="font-size: 0.625rem; color: var(--text-faint); margin-top: 0.25rem;">To avoid GitHub API's standard limit of 60 requests/hour for unauthenticated IPs.</p>
+                    <p class="input-help">To access private repos, or avoid GitHub API's standard limit of 60 requests/hour for unauthenticated IPs.</p>
                 </div>
 
                 <div class="input-group">
-                    <label for="setting-hf-token">Hugging Face User Access Token</label>
+                    <label for="setting-hf-token">HUGGING FACE USER ACCESS TOKEN <a href="https://huggingface.co/settings/tokens" target="_blank" rel="noopener noreferrer">(Token Settings)</a></label>
                     <input type="password" id="setting-hf-token" placeholder="Optional" class="input-field">
-                    <p style="font-size: 0.625rem; color: var(--text-faint); margin-top: 0.25rem;">Required to access private model repos or private dataset folders.</p>
+                    <p class="input-help">Required to access private model repos or private dataset folders.</p>
                 </div>
             </div>
 
@@ -705,6 +726,16 @@
 
     <!-- MAIN SYSTEM LOGIC & RUNTIME -->
     <script>
+        // ==========================================
+        // DEBUG MODE
+        // Set to true to enable verbose console logging (e.g. to troubleshoot
+        // settings persistence issues). Single toggle for the whole file.
+        // ==========================================
+        const DEBUG_MODE = false;
+        function debugLog(...args) {
+            if (DEBUG_MODE) console.log('[DEBUG]', ...args);
+        }
+
         // ==========================================
         // ICONOGRAPHY SYSTEM (NATIVE SVG)
         // ==========================================
@@ -758,7 +789,7 @@
         const DEFAULT_SETTINGS = {
             CORS_PROXY: {
                 value: "", 
-                description: "CORS Proxy URL Template. Replace with https://localhost:5001/?url={TheUrl} if local proxy is active."
+                description: "CORS Proxy URL Prefix. Set to something like https://localhost:5001/?url= if local proxy is active."
             },
             CONCURRENT_DOWNLOADS: {
                 value: 4,
@@ -784,6 +815,68 @@
             hfToken: DEFAULT_SETTINGS.HF_TOKEN.value
         };
 
+        // Persisted across sessions via localStorage, which (unlike cookies) is
+        // scoped to this page's own origin and is never transmitted over the network.
+        // NOTE: Under a file:// origin, some browsers (notably Firefox) disable or
+        // partition localStorage, which will cause persistence to silently fail.
+        const PERSISTED_SETTINGS_KEY = 'ghhfDownloader.settings.v1';
+
+        function checkLocalStorageAvailable() {
+            try {
+                const testKey = '__ghhfDownloader_storage_test__';
+                localStorage.setItem(testKey, '1');
+                localStorage.removeItem(testKey);
+                debugLog('localStorage availability check: OK', { origin: window.location.origin, protocol: window.location.protocol });
+                return true;
+            } catch (err) {
+                console.warn('localStorage is not available:', err, { origin: window.location.origin, protocol: window.location.protocol });
+                return false;
+            }
+        }
+
+        function loadPersistedSettings() {
+            debugLog('loadPersistedSettings() called', { origin: window.location.origin, protocol: window.location.protocol, href: window.location.href });
+            checkLocalStorageAvailable();
+            try {
+                const raw = localStorage.getItem(PERSISTED_SETTINGS_KEY);
+                debugLog('loadPersistedSettings() raw value from localStorage:', raw);
+                if (!raw) {
+                    debugLog('No persisted settings found under key', PERSISTED_SETTINGS_KEY);
+                    return;
+                }
+                const stored = JSON.parse(raw);
+                if (typeof stored.corsProxy === 'string') activeSettings.corsProxy = stored.corsProxy;
+                if (typeof stored.githubToken === 'string') activeSettings.githubToken = stored.githubToken;
+                if (typeof stored.hfToken === 'string') activeSettings.hfToken = stored.hfToken;
+                if (typeof stored.concurrentDownloads === 'number') {
+                    activeSettings.concurrentDownloads = Math.max(
+                        DEFAULT_SETTINGS.CONCURRENT_DOWNLOADS.min,
+                        Math.min(DEFAULT_SETTINGS.CONCURRENT_DOWNLOADS.max, stored.concurrentDownloads)
+                    );
+                }
+                debugLog('loadPersistedSettings() applied to activeSettings:', { corsProxy: activeSettings.corsProxy, concurrentDownloads: activeSettings.concurrentDownloads, githubToken: activeSettings.githubToken ? '(set)' : '(empty)', hfToken: activeSettings.hfToken ? '(set)' : '(empty)' });
+            } catch (err) {
+                console.warn('Failed to load persisted settings:', err);
+            }
+        }
+
+        function persistSettings() {
+            const payload = {
+                corsProxy: activeSettings.corsProxy,
+                concurrentDownloads: activeSettings.concurrentDownloads,
+                githubToken: activeSettings.githubToken,
+                hfToken: activeSettings.hfToken
+            };
+            debugLog('persistSettings() writing:', { corsProxy: payload.corsProxy, concurrentDownloads: payload.concurrentDownloads, githubToken: payload.githubToken ? '(set)' : '(empty)', hfToken: payload.hfToken ? '(set)' : '(empty)' });
+            try {
+                localStorage.setItem(PERSISTED_SETTINGS_KEY, JSON.stringify(payload));
+                const readback = localStorage.getItem(PERSISTED_SETTINGS_KEY);
+                debugLog('persistSettings() readback immediately after write:', readback);
+            } catch (err) {
+                console.warn('Failed to persist settings:', err);
+            }
+        }
+
         let currentRepoInfo = null;
         let discoveredFiles = [];
         let isDownloading = false;
@@ -792,6 +885,7 @@
 
         window.addEventListener('DOMContentLoaded', () => {
             injectIcons();
+            loadPersistedSettings();
             initSettingsUI();
             checkBrowserAPISupport();
             updateModeVisuals();
@@ -862,6 +956,7 @@
         }
 
         function initSettingsUI() {
+            debugLog('initSettingsUI() populating fields from activeSettings:', { corsProxy: activeSettings.corsProxy, githubToken: activeSettings.githubToken ? '(set)' : '(empty)', hfToken: activeSettings.hfToken ? '(set)' : '(empty)' });
             document.getElementById('setting-cors-proxy').value = activeSettings.corsProxy;
             document.getElementById('setting-concurrent-downloads').value = activeSettings.concurrentDownloads;
             document.getElementById('threads-label').textContent = activeSettings.concurrentDownloads;
@@ -887,6 +982,9 @@
             );
             activeSettings.githubToken = document.getElementById('setting-github-token').value.trim();
             activeSettings.hfToken = document.getElementById('setting-hf-token').value.trim();
+
+            debugLog('saveSettingsForm() activeSettings before persist:', { corsProxy: activeSettings.corsProxy, githubToken: activeSettings.githubToken ? '(set)' : '(empty)', hfToken: activeSettings.hfToken ? '(set)' : '(empty)' });
+            persistSettings();
 
             logConsole(`Settings updated. Proxy: [${activeSettings.corsProxy || 'Direct Fetch'}], Threads: ${activeSettings.concurrentDownloads}`, "info");
             toggleSettingsModal();
@@ -947,7 +1045,7 @@
 
         function applyCorsProxy(url) {
             if (!activeSettings.corsProxy) return url;
-            return activeSettings.corsProxy.replace('{TheUrl}', encodeURIComponent(url));
+            return activeSettings.corsProxy + encodeURIComponent(url);
         }
 
         async function startRepositoryScan() {
@@ -1071,15 +1169,15 @@
             switch(status) {
                 case 'downloading':
                     return `
-                        <div class="flex items-center justify-end gap-1" style="color: var(--brand-light); font-weight: 600;">
-                            <span style="font-size: 0.625rem; font-family: var(--font-mono);">${percent}%</span>
+                        <div class="flex items-center justify-end gap-1 font-semibold" style="color: var(--brand-light);">
+                            <span class="text-tiny font-mono">${percent}%</span>
                             ${getIcon('spinner')}
                         </div>
                     `;
                 case 'completed': return `<span style="color: var(--success-light);">${getIcon('circle-check')}</span>`;
                 case 'failed': return `<span style="color: var(--danger-main);">${getIcon('triangle-exclamation')}</span>`;
                 case 'pending':
-                default: return `<span style="color: var(--text-faint);">${getIcon('circle-minus')}</span>`;
+                default: return `<span class="text-faint">${getIcon('circle-minus')}</span>`;
             }
         }
 
@@ -1133,13 +1231,13 @@
                             <div class="flex items-center gap-2 min-w-0 flex-grow" style="overflow: hidden;">
                                 <button onclick="toggleDirCollapse('${dirId}', '${dir.path.replace(/'/g, "\\'")}')" 
                                     style="background: none; border: none; color: var(--text-faint); cursor: pointer; display: flex; align-items: center; justify-content: center; width: 1.5rem; height: 1.5rem; border-radius: 0.25rem;">
-                                    <span id="arrow-${dirId}" style="transition: transform 0.15s; font-size: 0.625rem; display: inline-block; ${isCollapsed ? 'transform: rotate(-90deg);' : ''}">${getIcon('chevron-down')}</span>
+                                    <span id="arrow-${dirId}" class="text-tiny" style="transition: transform 0.15s; display: inline-block; ${isCollapsed ? 'transform: rotate(-90deg);' : ''}">${getIcon('chevron-down')}</span>
                                 </button>
                                 <input type="checkbox" id="check-${dirId}" ${isAllSelected ? 'checked' : ''} onchange="toggleDirSelection('${dir.path.replace(/'/g, "\\'")}', this.checked)">
-                                <span style="color: var(--text-muted); display: flex; align-items: center;">${getIcon('folder')}</span>
+                                <span class="text-muted" style="display: flex; align-items: center;">${getIcon('folder')}</span>
                                 <span class="font-semibold truncate font-mono" style="font-size: 0.6875rem; color: var(--text-secondary);" title="${dir.path}">${dir.name}</span>
                             </div>
-                            <div class="flex items-center gap-4 text-[10px] font-mono flex-shrink-0" style="color: var(--text-faint);">
+                            <div class="flex items-center gap-4 text-tiny font-mono flex-shrink-0 text-faint">
                                 <span style="width: 5rem; text-align: right;">${formatBytes(stats.totalSize)}</span>
                                 <span style="width: 6rem; text-align: right;"></span>
                             </div>
@@ -1171,11 +1269,11 @@
                         </div>
                         
                         <div id="progress-details-${file.id}" class="hidden" style="padding-bottom: 0.75rem; padding-right: 1rem; padding-left: ${indent + 64}px;">
-                            <div class="flex items-center justify-between" style="font-size: 0.625rem; color: var(--text-muted); margin-bottom: 0.25rem;">
+                            <div class="flex items-center justify-between text-tiny text-muted" style="margin-bottom: 0.25rem;">
                                 <span id="progress-bytes-${file.id}" class="font-mono">0 B / 0 B</span>
                                 <span class="flex items-center gap-1 font-mono">
                                     <span id="progress-speed-${file.id}" style="color: var(--brand-light); font-weight: 600;">0 KB/s</span>
-                                    <span style="color: var(--text-faint);">|</span>
+                                    <span class="text-faint">|</span>
                                     <span id="progress-eta-${file.id}" style="color: var(--text-secondary);">ETA: --</span>
                                 </span>
                             </div>
